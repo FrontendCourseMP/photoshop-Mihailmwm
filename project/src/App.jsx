@@ -1,24 +1,20 @@
 import { useRef, useState, useMemo } from "react";
 
-import Toolbar from "./components/Toolbar";
+import TopMenu from "./components/TopMenu";
 import CanvasView from "./components/CanvasView";
-import StatusBar from "./components/StatusBar";
 import ChannelsPanel from "./components/ChannelsPanel";
 import EyedropperInfo from "./components/EyedropperInfo";
 
 import { decodeGB7, encodeGB7 } from "./utils/gb7";
-import { rgbToLab, applyChannels } from "./utils/color";
+import { applyChannels, rgbToLab } from "./utils/color";
 
 export default function App() {
   const canvasRef = useRef(null);
 
-  // ================= TOOL =================
   const [tool, setTool] = useState("move");
 
-  // ================= IMAGE =================
   const [originalImage, setOriginalImage] = useState(null);
 
-  // ================= CHANNELS =================
   const [channels, setChannels] = useState({
     r: true,
     g: true,
@@ -26,32 +22,29 @@ export default function App() {
     a: true,
   });
 
-  // стабилизация зависимостей
-  const channelsKey = `${channels.r}${channels.g}${channels.b}${channels.a}`;
-
-  // ================= INFO =================
   const [info, setInfo] = useState({
     width: 0,
     height: 0,
     depth: 0,
   });
 
-  // ================= EYEDROPPER =================
   const [pickedPixel, setPickedPixel] = useState(null);
 
-  // ================= IMAGE PROCESSING =================
+  const hasImage = originalImage !== null;
+
+  // ================= DERIVED IMAGE =================
   const imageData = useMemo(() => {
     if (!originalImage) return null;
     return applyChannels(originalImage, channels);
-  }, [originalImage, channelsKey]);
+  }, [originalImage, channels]);
 
   // ================= UPLOAD =================
-  const handleUpload = async (e) => {
-    const file = e.target.files[0];
+  const handleUpload = async (file) => {
     if (!file) return;
 
     const ext = file.name.split(".").pop().toLowerCase();
 
+    // PNG / JPG
     if (["png", "jpg", "jpeg"].includes(ext)) {
       const img = new Image();
       img.src = URL.createObjectURL(file);
@@ -77,8 +70,10 @@ export default function App() {
       };
     }
 
+    // GB7
     if (ext === "gb7") {
       const buffer = await file.arrayBuffer();
+
       const result = decodeGB7(buffer);
 
       setOriginalImage(result.imageData);
@@ -91,99 +86,198 @@ export default function App() {
     }
   };
 
-  // ================= PNG EXPORT =================
+  // ================= EXPORT PNG =================
   const handleDownloadPNG = () => {
-    if (!imageData) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const tempCanvas = document.createElement("canvas");
-    const ctx = tempCanvas.getContext("2d");
+    const a = document.createElement("a");
 
-    tempCanvas.width = imageData.width;
-    tempCanvas.height = imageData.height;
+    a.download = "image.png";
+    a.href = canvas.toDataURL();
 
-    ctx.putImageData(imageData, 0, 0);
-
-    const link = document.createElement("a");
-    link.download = "image.png";
-    link.href = tempCanvas.toDataURL("image/png");
-    link.click();
+    a.click();
   };
 
-  // ================= GB7 EXPORT =================
+  // ================= EXPORT GB7 =================
   const handleDownloadGB7 = () => {
-    if (!imageData) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const tempCanvas = document.createElement("canvas");
-    const ctx = tempCanvas.getContext("2d");
+    const blob = encodeGB7(canvas);
 
-    tempCanvas.width = imageData.width;
-    tempCanvas.height = imageData.height;
+    const a = document.createElement("a");
 
-    ctx.putImageData(imageData, 0, 0);
+    a.href = URL.createObjectURL(blob);
+    a.download = "image.gb7";
 
-    const blob = encodeGB7(tempCanvas);
-
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "image.gb7";
-    link.click();
+    a.click();
   };
 
   // ================= EYEDROPPER =================
   const handleCanvasClick = (e) => {
     if (tool !== "eyedropper") return;
+    if (!canvasRef.current || !hasImage) return;
 
     const canvas = canvasRef.current;
-    if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
 
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const x = Math.floor(
+      (e.clientX - rect.left) * (canvas.width / rect.width)
+    );
 
-    const x = Math.floor((e.clientX - rect.left) * scaleX);
-    const y = Math.floor((e.clientY - rect.top) * scaleY);
+    const y = Math.floor(
+      (e.clientY - rect.top) * (canvas.height / rect.height)
+    );
 
     const ctx = canvas.getContext("2d");
-    const pixel = ctx.getImageData(x, y, 1, 1).data;
+
+    const p = ctx.getImageData(x, y, 1, 1).data;
 
     const rgb = {
-      r: pixel[0],
-      g: pixel[1],
-      b: pixel[2],
+      r: p[0],
+      g: p[1],
+      b: p[2],
     };
 
     const lab = rgbToLab(rgb.r, rgb.g, rgb.b);
 
-    setPickedPixel({ x, y, ...rgb, lab });
+    setPickedPixel({
+      x,
+      y,
+      ...rgb,
+      lab,
+    });
   };
 
   return (
-    <div style={{ padding: 20 }}>
-      <h1>Photoshop (GB7)</h1>
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        overflow: "hidden",
 
-      <Toolbar
-        onUpload={handleUpload}
-        onDownloadPNG={handleDownloadPNG}
-        onDownloadGB7={handleDownloadGB7}
-        setTool={setTool}
-        tool={tool}
-      />
+        display: "flex",
+        flexDirection: "column",
 
-      <ChannelsPanel
-        channels={channels}
-        setChannels={setChannels}
-      />
+        background: "#1e1e1e",
+      }}
+    >
+      {/* ================= TOP MENU ================= */}
+      <div
+        style={{
+          flexShrink: 0,
+        }}
+      >
+        <TopMenu
+          setTool={setTool}
+          onOpen={handleUpload}
+          onSavePNG={handleDownloadPNG}
+          onSaveGB7={handleDownloadGB7}
+          disabled={!hasImage}
+        />
+      </div>
 
-      <CanvasView
-        ref={canvasRef}
-        imageData={imageData}
-        onClick={handleCanvasClick}
-      />
+      {/* ================= MAIN CONTENT ================= */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
 
-      <StatusBar info={info} />
+          overflow: "hidden",
 
-      <EyedropperInfo pixel={pickedPixel} />
+          minHeight: 0,
+          minWidth: 0,
+        }}
+      >
+        {/* ================= CHANNELS ================= */}
+        {hasImage && (
+          <div
+            style={{
+              width: 180,
+              flexShrink: 0,
+
+              overflowY: "auto",
+              overflowX: "hidden",
+
+              borderRight: "1px solid #333",
+              background: "#252526",
+            }}
+          >
+            <ChannelsPanel
+              channels={channels}
+              setChannels={setChannels}
+              imageData={originalImage}
+            />
+          </div>
+        )}
+
+        {/* ================= CANVAS AREA ================= */}
+        <div
+          style={{
+            flex: 1,
+
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+
+            overflow: "hidden",
+
+            minWidth: 0,
+            minHeight: 0,
+
+            padding: 10,
+            boxSizing: "border-box",
+
+            background: "#2d2d2d",
+          }}
+        >
+          {hasImage ? (
+            <div
+              style={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+
+                overflow: "hidden",
+              }}
+            >
+              <CanvasView
+                ref={canvasRef}
+                imageData={imageData}
+                onClick={handleCanvasClick}
+              />
+            </div>
+          ) : (
+            <div
+              style={{
+                color: "#888",
+                fontSize: 18,
+              }}
+            >
+              Открой изображение
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ================= STATUS BAR ================= */}
+      {hasImage && (
+        <div
+          style={{
+            flexShrink: 0,
+          }}
+        >
+          <EyedropperInfo
+            pixel={pickedPixel}
+            info={info}
+          />
+        </div>
+      )}
     </div>
   );
 }

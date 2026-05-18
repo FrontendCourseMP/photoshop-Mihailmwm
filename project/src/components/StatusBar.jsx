@@ -1,7 +1,10 @@
+
 export default function StatusBar({ info }) {
   return (
-    <div>
-      {info.width} x {info.height} | {info.depth} bit
+    <div className="statusbar">
+      <span>Width: {info.width}px</span>
+      <span>Height: {info.height}px</span>
+      <span>Depth: {info.depth} bit</span>
     </div>
   );
 }

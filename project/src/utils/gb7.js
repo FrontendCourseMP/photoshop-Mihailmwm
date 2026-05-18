@@ -46,7 +46,7 @@ export function decodeGB7(buffer) {
       : 255; // если маски нет — всегда непрозрачный
   }
   // Возвращаем результат
-  return { imageData, width, height };
+  return { imageData, width, height, hasMask };
 }
 // Кодирование canvas в формат GB7
 export function encodeGB7(canvas) {

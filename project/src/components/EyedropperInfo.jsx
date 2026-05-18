@@ -1,8 +1,22 @@
 export default function EyedropperInfo({ pixel }) {
+  const style = {
+    padding: "6px 12px",
+    fontFamily: "monospace",
+    display: "flex",
+    gap: 16,
+    alignItems: "center",
+    whiteSpace: "nowrap",
+    borderTop: "1px solid #333",
+    // background: "#111",
+    color: "#ddd",
+    fontSize: 12,
+    minHeight: 32, //  фиксируем высоту, чтобы не прыгало
+  };
+
   if (!pixel) {
     return (
-      <div style={{ padding: 10 }}>
-        No pixel selected
+      <div style={style}>
+        <span>No pixel selected</span>
       </div>
     );
   }
@@ -10,24 +24,14 @@ export default function EyedropperInfo({ pixel }) {
   const { x, y, r, g, b, lab } = pixel;
 
   return (
-    <div style={{
-      padding: 10,
-      border: "1px solid #ccc",
-      marginTop: 10,
-      fontFamily: "monospace"
-    }}>
-      <div><b>Coordinates:</b> ({x}, {y})</div>
+    <div style={style}>
+      <span>XY: {x}, {y}</span>
 
-      <div>
-        <b>RGB:</b> {r}, {g}, {b}
-      </div>
+      <span>RGB: {r}, {g}, {b}</span>
 
-      <div>
-        <b>LAB:</b>{" "}
-        L: {lab?.L?.toFixed(2)},{" "}
-        a: {lab?.a?.toFixed(2)},{" "}
-        b: {lab?.b?.toFixed(2)}
-      </div>
+      <span>
+        LAB: L {lab?.L?.toFixed(1)} a {lab?.a?.toFixed(1)} b {lab?.b?.toFixed(1)}
+      </span>
     </div>
   );
 }
