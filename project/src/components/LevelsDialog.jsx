@@ -1,57 +1,43 @@
 import { useMemo, useState } from "react";
-import { calculateHistogram as buildHistogram } from "../utils/levels.js";
+import {
+  calculateHistogram as buildHistogram,
+  clampLinkedRange,
+  createDefaultLevels,
+} from "../utils/levels.js";
 
 export default function LevelsDialog({
   open,
-  onClose,
+  onCancel,
+  onApply,
   imageData,
   levels,
   setLevels,
+  previewEnabled,
+  setPreviewEnabled,
 }) {
+  // Local histogram controls do not belong to the image model.
   const [channel, setChannel] = useState("master");
   const [logarithmic, setLogarithmic] = useState(false);
 
-  // ===== HISTOGRAM =====
+
+  // Histogram is based only on the source image and the selected channel.
   const histogram = useMemo(() => {
     if (!imageData) return [];
 
-    return buildHistogram(
-      imageData,
-      channel,
-      logarithmic
-    );
+    return buildHistogram(imageData, channel, logarithmic);
   }, [imageData, channel, logarithmic]);
 
-  // ===== SAFE RETURN =====
   if (!open || !imageData) return null;
 
-  const current =
-    channel === "master"
-      ? levels.r
-      : levels[channel];
-
+  const current = channel === "master" ? levels.master : levels[channel];
   const max = Math.max(...histogram, 1);
 
-  // ===== UPDATE LEVELS =====
+  // Update the active curve in the draft state.
   const update = (key, value) => {
     if (channel === "master") {
       setLevels((prev) => ({
         ...prev,
-
-        r: {
-          ...prev.r,
-          [key]: value,
-        },
-
-        g: {
-          ...prev.g,
-          [key]: value,
-        },
-
-        b: {
-          ...prev.b,
-          [key]: value,
-        },
+        master: clampLinkedRange(prev.master, key, value),
       }));
 
       return;
@@ -59,291 +45,265 @@ export default function LevelsDialog({
 
     setLevels((prev) => ({
       ...prev,
-
-      [channel]: {
-        ...prev[channel],
-        [key]: value,
-      },
+      [channel]: clampLinkedRange(prev[channel], key, value),
     }));
   };
 
-  // ===== RESET =====
+  // Reset keeps the dialog open, but returns all curves to the default state.
   const resetLevels = () => {
-    setLevels({
-      r: {
-        black: 0,
-        white: 255,
-        gamma: 1,
-      },
-
-      g: {
-        black: 0,
-        white: 255,
-        gamma: 1,
-      },
-
-      b: {
-        black: 0,
-        white: 255,
-        gamma: 1,
-      },
-
-      a: {
-        black: 0,
-        white: 255,
-        gamma: 1,
-      },
-    });
+    setLevels(createDefaultLevels());
   };
 
   return (
     <dialog
       open
       style={{
-        width: 760,
-        maxWidth: "90vw",
-
-        background: "#2b2b2b",
-        color: "white",
-
-        border: "1px solid #555",
-        borderRadius: 8,
-
-        padding: 20,
-
         position: "fixed",
-        top: "50%",
-        left: "50%",
-        transform: "translate(-50%, -50%)",
-
+        right: 0,
+        top: 0,
+        width: 360,
+        height: "100vh",
+        margin: 0,
+        border: "none",
+        padding: 0,
+        background: "#1f1f1f",
+        color: "white",
+        boxShadow: "-8px 0 24px rgba(0, 0, 0, 0.35)",
         zIndex: 9999,
       }}
+      aria-label="Levels dialog"
     >
-      {/* ===== HEADER ===== */}
       <div
         style={{
-          fontSize: 22,
-          marginBottom: 20,
-          fontWeight: "bold",
-        }}
-      >
-        Levels
-      </div>
-
-      {/* ===== CONTROLS ===== */}
-      <div
-        style={{
+          height: "100%",
           display: "flex",
-          alignItems: "center",
-          gap: 20,
-          marginBottom: 20,
+          flexDirection: "column",
+          minHeight: 0,
         }}
       >
-        {/* CHANNEL */}
-        <div>
-          <div style={{ marginBottom: 5 }}>
-            Channel
-          </div>
-
-          <select
-            value={channel}
-            onChange={(e) =>
-              setChannel(e.target.value)
-            }
-            style={{
-              background: "#1e1e1e",
-              color: "white",
-              border: "1px solid #555",
-              padding: 5,
-            }}
-          >
-            <option value="master">
-              Master
-            </option>
-
-            <option value="r">
-              Red
-            </option>
-
-            <option value="g">
-              Green
-            </option>
-
-            <option value="b">
-              Blue
-            </option>
-
-            <option value="a">
-              Alpha
-            </option>
-          </select>
-        </div>
-
-        {/* LOG */}
-        <label
+        {/* Header keeps the tool reachable without covering the canvas. */}
+        <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 8,
-            marginTop: 22,
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "14px 14px 12px",
+            borderBottom: "1px solid #333",
+            flexShrink: 0,
           }}
         >
-          <input
-            type="checkbox"
-            checked={logarithmic}
-            onChange={(e) =>
-              setLogarithmic(
-                e.target.checked
-              )
-            }
-          />
+          <div style={{ fontSize: 20, fontWeight: "bold" }}>Levels</div>
 
-          Log histogram
-        </label>
-      </div>
+          <button onClick={onCancel} style={iconButtonStyle} aria-label="Close Levels">
+            ×
+          </button>
+        </div>
 
-      {/* ===== HISTOGRAM ===== */}
-      <div
-        style={{
-          height: 220,
-
-          background: "#111",
-
-          border: "1px solid #444",
-
-          display: "flex",
-          alignItems: "flex-end",
-
-          overflow: "hidden",
-
-          padding: "10px 5px",
-
-          marginBottom: 20,
-        }}
-      >
-        {histogram.map((v, i) => (
-          <div
-            key={i}
+        <div
+          style={{
+            padding: 14,
+            overflowY: "auto",
+            minHeight: 0,
+          }}
+        >
+          {/* Preview switch mirrors the laboratory requirement exactly. */}
+          <label
             style={{
-              width: 2,
-
-              height: `${
-                (v / max) * 100
-              }%`,
-
-              background:
-                channel === "r"
-                  ? "#ff5555"
-                  : channel === "g"
-                  ? "#55ff55"
-                  : channel === "b"
-                  ? "#5599ff"
-                  : channel === "a"
-                  ? "#cccccc"
-                  : "#ffffff",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 16,
+              userSelect: "none",
             }}
-          />
-        ))}
-      </div>
+          >
+            <input
+              type="checkbox"
+              checked={previewEnabled}
+              onChange={(e) => setPreviewEnabled(e.target.checked)}
+            />
+            Live preview
+          </label>
 
-      {/* ===== BLACK ===== */}
-      <div style={{ marginBottom: 16 }}>
-        <div
-          style={{
-            marginBottom: 5,
-          }}
-        >
-          Black: {current.black}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              marginBottom: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ marginBottom: 5 }}>Channel</div>
+
+              <select
+                value={channel}
+                onChange={(e) => setChannel(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="master">Master</option>
+                <option value="r">Red</option>
+                <option value="g">Green</option>
+                <option value="b">Blue</option>
+                <option value="a">Alpha</option>
+              </select>
+            </div>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginTop: 22,
+                userSelect: "none",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={logarithmic}
+                onChange={(e) => setLogarithmic(e.target.checked)}
+              />
+              Log histogram
+            </label>
+          </div>
+
+          <div
+            style={{
+              height: 220,
+              background: "#111",
+              border: "1px solid #444",
+              display: "flex",
+              alignItems: "flex-end",
+              overflow: "hidden",
+              padding: "10px 5px",
+              marginBottom: 18,
+            }}
+          >
+            {histogram.map((v, i) => (
+              <div
+                key={i}
+                style={{
+                  width: 2,
+                  height: `${(v / max) * 100}%`,
+                  background:
+                    channel === "r"
+                      ? "#ff5555"
+                      : channel === "g"
+                        ? "#55ff55"
+                        : channel === "b"
+                          ? "#5599ff"
+                          : channel === "a"
+                            ? "#cccccc"
+                            : "#ffffff",
+                }}
+              />
+            ))}
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={fieldLabelStyle}>Black</div>
+
+            <div style={controlRowStyle}>
+              <input
+                type="range"
+                min={0}
+                max={current.white - 1}
+                value={current.black}
+                onChange={(e) => update("black", Number(e.target.value))}
+                style={{ flex: 1 }}
+              />
+
+              <input
+                type="number"
+                min={0}
+                max={current.white - 1}
+                value={current.black}
+                onChange={(e) => update("black", Number(e.target.value))}
+                style={numberInputStyle}
+              />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={fieldLabelStyle}>White</div>
+
+            <div style={controlRowStyle}>
+              <input
+                type="range"
+                min={current.black + 1}
+                max={255}
+                value={current.white}
+                onChange={(e) => update("white", Number(e.target.value))}
+                style={{ flex: 1 }}
+              />
+
+              <input
+                type="number"
+                min={current.black + 1}
+                max={255}
+                value={current.white}
+                onChange={(e) => update("white", Number(e.target.value))}
+                style={numberInputStyle}
+              />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <div style={fieldLabelStyle}>
+              Gamma: {current.gamma.toFixed(2)}
+            </div>
+
+            <div style={controlRowStyle}>
+              <input
+                type="range"
+                min={0.1}
+                max={9.9}
+                step={0.1}
+                value={current.gamma}
+                onChange={(e) => update("gamma", Number(e.target.value))}
+                style={{ flex: 1 }}
+              />
+
+              <input
+                type="number"
+                min={0.1}
+                max={9.9}
+                step={0.1}
+                value={current.gamma}
+                onChange={(e) => update("gamma", Number(e.target.value))}
+                style={numberInputStyle}
+              />
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <button onClick={resetLevels} style={buttonStyle}>
+              Reset
+            </button>
+
+            <button
+              onClick={() => onCancel()}
+              style={buttonStyle}
+            >
+              Cancel
+            </button>
+
+            <button
+              onClick={() => onApply()}
+              style={buttonStyle}
+            >
+              Apply
+            </button>
+          </div>
         </div>
-
-        <input
-          type="range"
-          min={0}
-          max={254}
-          value={current.black}
-          onChange={(e) =>
-            update(
-              "black",
-              Number(e.target.value)
-            )
-          }
-          style={{ width: "100%" }}
-        />
-      </div>
-
-      {/* ===== WHITE ===== */}
-      <div style={{ marginBottom: 16 }}>
-        <div
-          style={{
-            marginBottom: 5,
-          }}
-        >
-          White: {current.white}
-        </div>
-
-        <input
-          type="range"
-          min={1}
-          max={255}
-          value={current.white}
-          onChange={(e) =>
-            update(
-              "white",
-              Number(e.target.value)
-            )
-          }
-          style={{ width: "100%" }}
-        />
-      </div>
-
-      {/* ===== GAMMA ===== */}
-      <div style={{ marginBottom: 20 }}>
-        <div
-          style={{
-            marginBottom: 5,
-          }}
-        >
-          Gamma:{" "}
-          {current.gamma.toFixed(2)}
-        </div>
-
-        <input
-          type="range"
-          min={0.1}
-          max={9.9}
-          step={0.1}
-          value={current.gamma}
-          onChange={(e) =>
-            update(
-              "gamma",
-              Number(e.target.value)
-            )
-          }
-          style={{ width: "100%" }}
-        />
-      </div>
-
-      {/* ===== BUTTONS ===== */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: 10,
-        }}
-      >
-        <button
-          onClick={resetLevels}
-          style={buttonStyle}
-        >
-          Reset
-        </button>
-
-        <button
-          onClick={onClose}
-          style={buttonStyle}
-        >
-          Apply
-        </button>
       </div>
     </dialog>
   );
@@ -355,4 +315,39 @@ const buttonStyle = {
   border: "1px solid #555",
   padding: "8px 14px",
   cursor: "pointer",
+};
+
+const iconButtonStyle = {
+  ...buttonStyle,
+  width: 32,
+  height: 32,
+  padding: 0,
+  borderRadius: 4,
+  fontSize: 20,
+  lineHeight: "28px",
+};
+
+const selectStyle = {
+  background: "#1e1e1e",
+  color: "white",
+  border: "1px solid #555",
+  padding: 5,
+};
+
+const fieldLabelStyle = {
+  marginBottom: 5,
+};
+
+const controlRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+};
+
+const numberInputStyle = {
+  width: 72,
+  background: "#1e1e1e",
+  color: "white",
+  border: "1px solid #555",
+  padding: "6px 8px",
 };

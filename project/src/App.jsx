@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import TopMenu from "./components/TopMenu";
 import CanvasView from "./components/CanvasView";
@@ -8,13 +8,12 @@ import LevelsDialog from "./components/LevelsDialog";
 
 import { decodeGB7, encodeGB7 } from "./utils/gb7";
 import { applyChannels, rgbToLab } from "./utils/color";
-import { applyLevels } from "./utils/levels";
+import { applyLevels, createDefaultLevels } from "./utils/levels";
 
 export default function App() {
   const canvasRef = useRef(null);
 
   const [tool, setTool] = useState("move");
-
   const [levelsOpen, setLevelsOpen] = useState(false);
 
   const [originalImage, setOriginalImage] = useState(null);
@@ -34,25 +33,52 @@ export default function App() {
 
   const [pickedPixel, setPickedPixel] = useState(null);
 
-  const defaultLevels = {
-    master: { black: 0, white: 255, gamma: 1 },
-    r: { black: 0, white: 255, gamma: 1 },
-    g: { black: 0, white: 255, gamma: 1 },
-    b: { black: 0, white: 255, gamma: 1 },
-    a: { black: 0, white: 255, gamma: 1 },
-  };
+  // Committed levels are the version already applied to the image.
+  const [levels, setLevels] = useState(() => createDefaultLevels());
 
-  const [levels, setLevels] = useState(defaultLevels);
+  // Draft levels are edited inside the dialog before Apply.
+  const [levelsDraft, setLevelsDraft] = useState(() => createDefaultLevels());
+  const [levelsPreviewEnabled, setLevelsPreviewEnabled] = useState(true);
 
   const hasImage = originalImage !== null;
 
-  // ================= IMAGE PIPELINE =================
+  // The canvas renders the draft while the dialog is open and preview is enabled.
   const imageData = useMemo(() => {
     if (!originalImage) return null;
 
-    const leveled = applyLevels(originalImage, levels);
+    const activeLevels =
+      levelsOpen && levelsPreviewEnabled ? levelsDraft : levels;
+
+    const leveled = applyLevels(originalImage, activeLevels);
     return applyChannels(leveled, channels);
-  }, [originalImage, channels, levels]);
+  }, [
+    originalImage,
+    channels,
+    levels,
+    levelsDraft,
+    levelsOpen,
+    levelsPreviewEnabled,
+  ]);
+
+  // Open Levels with a fresh draft copy of the current committed state.
+  const handleOpenLevels = () => {
+    setLevelsDraft(levels);
+    setLevelsPreviewEnabled(true);
+    setLevelsOpen(true);
+  };
+
+  // Cancel discards draft changes and returns to the committed result.
+  const handleCancelLevels = () => {
+    setLevelsDraft(levels);
+    setLevelsPreviewEnabled(true);
+    setLevelsOpen(false);
+  };
+
+  // Apply commits the draft changes to the real image pipeline.
+  const handleApplyLevels = () => {
+    setLevels(levelsDraft);
+    setLevelsOpen(false);
+  };
 
   // ================= UPLOAD =================
   const handleUpload = async (file) => {
@@ -81,6 +107,9 @@ export default function App() {
           height: img.height,
           depth: 24,
         });
+        setLevels(createDefaultLevels());
+        setLevelsDraft(createDefaultLevels());
+        setLevelsPreviewEnabled(true);
       };
     }
 
@@ -94,6 +123,9 @@ export default function App() {
         height: result.height,
         depth: 7,
       });
+      setLevels(createDefaultLevels());
+      setLevelsDraft(createDefaultLevels());
+      setLevelsPreviewEnabled(true);
     }
   };
 
@@ -151,16 +183,16 @@ export default function App() {
         overflow: "hidden",
       }}
     >
-      {/* TOP MENU */}
+      {/* Top bar keeps file and tool actions reachable at all times. */}
       <TopMenu
         setTool={setTool}
         onOpen={handleUpload}
         onSavePNG={handleDownloadPNG}
         onSaveGB7={handleDownloadGB7}
-        onOpenLevels={() => setLevelsOpen(true)}
+        onOpenLevels={handleOpenLevels}
       />
 
-      {/* MAIN */}
+      {/* Main workspace: channels on the left, canvas in the center, Levels on the right. */}
       <div
         style={{
           flex: 1,
@@ -169,7 +201,6 @@ export default function App() {
           overflow: "hidden",
         }}
       >
-        {/* CHANNELS */}
         {hasImage && (
           <div
             style={{
@@ -188,7 +219,6 @@ export default function App() {
           </div>
         )}
 
-        {/* CANVAS */}
         <div
           style={{
             flex: 1,
@@ -208,36 +238,35 @@ export default function App() {
               onClick={handleCanvasClick}
             />
           ) : (
-            <div style={{ color: "#888" }}>
-              Открой изображение
-            </div>
+            <div style={{ color: "#888" }}>Открой изображение</div>
           )}
         </div>
 
-        {/* LEVELS SIDEBAR (ВАЖНО: СПРАВА) */}
         {hasImage && levelsOpen && (
           <div
             style={{
-              width: 320,
+              width: 360,
               flexShrink: 0,
               borderLeft: "1px solid #333",
               background: "#1f1f1f",
-              overflowY: "auto",
+              overflow: "hidden",
             }}
           >
             <LevelsDialog
-              open={levelsOpen} 
+              open={levelsOpen}
               imageData={originalImage}
-              levels={levels}
-              setLevels={setLevels}
-              onClose={() => setLevelsOpen(false)}
+              levels={levelsDraft}
+              setLevels={setLevelsDraft}
+              previewEnabled={levelsPreviewEnabled}
+              setPreviewEnabled={setLevelsPreviewEnabled}
+              onCancel={handleCancelLevels}
+              onApply={handleApplyLevels}
             />
-            
           </div>
         )}
       </div>
 
-      {/* STATUS BAR */}
+      {/* Bottom info bar shows image size and picked pixel data. */}
       {hasImage && (
         <div style={{ flexShrink: 0 }}>
           <EyedropperInfo pixel={pickedPixel} info={info} />

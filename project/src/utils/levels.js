@@ -1,15 +1,57 @@
+// ===== DEFAULT LEVELS =====
+// Shared factory so app state, dialog reset, and cancel logic always use the same shape.
+export function createDefaultLevels() {
+  return {
+    master: { black: 0, white: 255, gamma: 1 },
+    r: { black: 0, white: 255, gamma: 1 },
+    g: { black: 0, white: 255, gamma: 1 },
+    b: { black: 0, white: 255, gamma: 1 },
+    a: { black: 0, white: 255, gamma: 1 },
+  };
+}
+
+// ===== RANGE HELPERS =====
+// Keep black/white linked so they can never cross each other.
+export function clampLinkedRange(level, key, value) {
+  if (key === "black") {
+    const black = Math.max(0, Math.min(value, 254));
+
+    return {
+      ...level,
+      black,
+      white: Math.max(level.white, black + 1),
+    };
+  }
+
+  if (key === "white") {
+    const white = Math.max(1, Math.min(value, 255));
+
+    return {
+      ...level,
+      white,
+      black: Math.min(level.black, white - 1),
+    };
+  }
+
+  return {
+    ...level,
+    [key]: value,
+  };
+}
+
+// ===== LOOKUP TABLE =====
+// Build a fast per-channel LUT so pixel processing stays linear over image size.
 export function buildLevelsLUT(black, white, gamma = 1) {
   const lut = new Array(256);
-
   const range = white - black || 1;
 
   for (let i = 0; i < 256; i++) {
     let normalized = (i - black) / range;
 
-    // clamp
+    // Clamp before gamma correction so the curve stays stable.
     normalized = Math.min(1, Math.max(0, normalized));
 
-    // gamma correction
+    // Gamma controls only the midtones.
     normalized = Math.pow(normalized, 1 / gamma);
 
     lut[i] = Math.round(normalized * 255);
@@ -18,6 +60,8 @@ export function buildLevelsLUT(black, white, gamma = 1) {
   return lut;
 }
 
+// ===== APPLY LEVELS =====
+// Master is applied first, then per-channel correction is applied on top.
 export function applyLevels(imageData, settings = {}) {
   const result = new ImageData(imageData.width, imageData.height);
 
@@ -30,32 +74,14 @@ export function applyLevels(imageData, settings = {}) {
     gamma: settings[ch]?.gamma ?? 1,
   });
 
+  const master = get("master");
+
   const luts = {
-    master: buildLevelsLUT(
-      get("master").black,
-      get("master").white,
-      get("master").gamma
-    ),
-    r: buildLevelsLUT(
-      get("r").black,
-      get("r").white,
-      get("r").gamma
-    ),
-    g: buildLevelsLUT(
-      get("g").black,
-      get("g").white,
-      get("g").gamma
-    ),
-    b: buildLevelsLUT(
-      get("b").black,
-      get("b").white,
-      get("b").gamma
-    ),
-    a: buildLevelsLUT(
-      get("a").black,
-      get("a").white,
-      get("a").gamma
-    ),
+    master: buildLevelsLUT(master.black, master.white, master.gamma),
+    r: buildLevelsLUT(get("r").black, get("r").white, get("r").gamma),
+    g: buildLevelsLUT(get("g").black, get("g").white, get("g").gamma),
+    b: buildLevelsLUT(get("b").black, get("b").white, get("b").gamma),
+    a: buildLevelsLUT(get("a").black, get("a").white, get("a").gamma),
   };
 
   for (let i = 0; i < src.length; i += 4) {
@@ -77,6 +103,8 @@ export function applyLevels(imageData, settings = {}) {
   return result;
 }
 
+// ===== HISTOGRAM =====
+// Master histogram uses luma, channel mode uses the chosen channel including alpha.
 export function calculateHistogram(imageData, channel = "master", log = false) {
   const hist = new Array(256).fill(0);
 
@@ -102,9 +130,7 @@ export function calculateHistogram(imageData, channel = "master", log = false) {
         break;
       default:
         value = Math.round(
-          0.299 * data[i] +
-          0.587 * data[i + 1] +
-          0.114 * data[i + 2]
+          0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
         );
     }
 
@@ -119,4 +145,3 @@ export function calculateHistogram(imageData, channel = "master", log = false) {
 
   return hist;
 }
-

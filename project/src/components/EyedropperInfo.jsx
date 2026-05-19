@@ -1,4 +1,4 @@
-export default function EyedropperInfo({ pixel }) {
+export default function EyedropperInfo({ pixel, info }) {
   const style = {
     padding: "6px 12px",
     fontFamily: "monospace",
@@ -7,16 +7,18 @@ export default function EyedropperInfo({ pixel }) {
     alignItems: "center",
     whiteSpace: "nowrap",
     borderTop: "1px solid #333",
-    // background: "#111",
     color: "#ddd",
     fontSize: 12,
-    minHeight: 32, //  фиксируем высоту, чтобы не прыгало
+    minHeight: 32,
   };
+
+  const sizeText =
+    info?.width && info?.height ? `${info.width} × ${info.height}` : null;
 
   if (!pixel) {
     return (
       <div style={style}>
-        <span>No pixel selected</span>
+        <span>{sizeText ? `Image: ${sizeText}` : "No pixel selected"}</span>
       </div>
     );
   }
@@ -25,7 +27,11 @@ export default function EyedropperInfo({ pixel }) {
 
   return (
     <div style={style}>
-      <span>XY: {x}, {y}</span>
+      {sizeText && <span>Image: {sizeText}</span>}
+
+      <span>
+        XY: {x}, {y}
+      </span>
 
       <span>RGB: {r}, {g}, {b}</span>
 
