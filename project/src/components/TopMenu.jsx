@@ -5,7 +5,8 @@ export default function TopMenu({
   onOpen,
   onSavePNG,
   onSaveGB7,
-  onOpenLevels, //  ДОБАВИЛИ
+  onOpenLevels,
+  onOpenScale,
 }) {
   const [open, setOpen] = useState(null);
 
@@ -62,7 +63,7 @@ export default function TopMenu({
                 setOpen(null);
               }}
             >
-              Move
+              Перемещение
             </button>
 
             <button
@@ -75,16 +76,25 @@ export default function TopMenu({
               Пипетка
             </button>
 
-            {/*  FIX */}
-<button
-  style={itemStyle}
-  onClick={() => {
-    onOpenLevels();
-    setOpen(null);
-  }}
->
-  Levels
-</button>
+            <button
+              style={itemStyle}
+              onClick={() => {
+                onOpenLevels?.();
+                setOpen(null);
+              }}
+            >
+              Уровни
+            </button>
+
+            <button
+              style={itemStyle}
+              onClick={() => {
+                onOpenScale?.();
+                setOpen(null);
+              }}
+            >
+              Масштаб
+            </button>
           </div>
         )}
       </div>

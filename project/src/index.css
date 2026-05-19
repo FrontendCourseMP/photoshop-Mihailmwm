@@ -117,3 +117,8 @@ html, body {
 * {
   box-sizing: border-box;
 }
+
+/* ===== dialog backdrop: disable full-screen overlay for side-panels ===== */
+dialog::backdrop {
+  background: transparent !important;
+}

@@ -58,18 +58,16 @@ export default function LevelsDialog({
     <dialog
       open
       style={{
-        position: "fixed",
-        right: 0,
-        top: 0,
-        width: 360,
-        height: "100vh",
+        position: "relative",
+        width: "100%",
+        height: "100%",
         margin: 0,
         border: "none",
         padding: 0,
         background: "#1f1f1f",
         color: "white",
-        boxShadow: "-8px 0 24px rgba(0, 0, 0, 0.35)",
-        zIndex: 9999,
+        boxShadow: "none",
+        zIndex: 1,
       }}
       aria-label="Levels dialog"
     >

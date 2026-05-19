@@ -5,16 +5,23 @@ import CanvasView from "./components/CanvasView";
 import ChannelsPanel from "./components/ChannelsPanel";
 import EyedropperInfo from "./components/EyedropperInfo";
 import LevelsDialog from "./components/LevelsDialog";
+import ScaleDialog from "./components/ScaleDialog";
 
 import { decodeGB7, encodeGB7 } from "./utils/gb7";
 import { applyChannels, rgbToLab } from "./utils/color";
 import { applyLevels, createDefaultLevels } from "./utils/levels";
+import { resizeImageData, scaleImageData } from "./utils/scale";
+
+const LEFT_PANEL_WIDTH = 180;
+const RIGHT_PANEL_WIDTH = 360;
 
 export default function App() {
   const canvasRef = useRef(null);
 
   const [tool, setTool] = useState("move");
+
   const [levelsOpen, setLevelsOpen] = useState(false);
+  const [scaleOpen, setScaleOpen] = useState(false);
 
   const [originalImage, setOriginalImage] = useState(null);
 
@@ -33,16 +40,18 @@ export default function App() {
 
   const [pickedPixel, setPickedPixel] = useState(null);
 
-  // Committed levels are the version already applied to the image.
+  // Levels pipeline state (applied/committed + draft/preview)
   const [levels, setLevels] = useState(() => createDefaultLevels());
-
-  // Draft levels are edited inside the dialog before Apply.
   const [levelsDraft, setLevelsDraft] = useState(() => createDefaultLevels());
   const [levelsPreviewEnabled, setLevelsPreviewEnabled] = useState(true);
 
+  // View zoom (12..300) affects canvas rendering only (scaled-by-view-zoom).
+  // Must start at 100% when image opens and must not auto-fit.
+  const [viewScalePercent, setViewScalePercent] = useState(100);
+
   const hasImage = originalImage !== null;
 
-  // The canvas renders the draft while the dialog is open and preview is enabled.
+  // Canvas image is: original -> levels -> channels -> scaled-by-view-zoom (with interpolation).
   const imageData = useMemo(() => {
     if (!originalImage) return null;
 
@@ -50,7 +59,9 @@ export default function App() {
       levelsOpen && levelsPreviewEnabled ? levelsDraft : levels;
 
     const leveled = applyLevels(originalImage, activeLevels);
-    return applyChannels(leveled, channels);
+    const colored = applyChannels(leveled, channels);
+
+    return scaleImageData(colored, viewScalePercent, "bilinear");
   }, [
     originalImage,
     channels,
@@ -58,26 +69,60 @@ export default function App() {
     levelsDraft,
     levelsOpen,
     levelsPreviewEnabled,
+    viewScalePercent,
   ]);
 
-  // Open Levels with a fresh draft copy of the current committed state.
   const handleOpenLevels = () => {
     setLevelsDraft(levels);
     setLevelsPreviewEnabled(true);
     setLevelsOpen(true);
   };
 
-  // Cancel discards draft changes and returns to the committed result.
   const handleCancelLevels = () => {
     setLevelsDraft(levels);
     setLevelsPreviewEnabled(true);
     setLevelsOpen(false);
   };
 
-  // Apply commits the draft changes to the real image pipeline.
   const handleApplyLevels = () => {
     setLevels(levelsDraft);
     setLevelsOpen(false);
+  };
+
+  const handleOpenScale = () => setScaleOpen(true);
+  const handleCancelScale = () => setScaleOpen(false);
+
+  // Scale tool: actually resizes the source image (originalImage).
+  // After resize we keep current viewScalePercent (no auto-fit).
+  const handleApplyScale = ({
+    targetWidth,
+    targetHeight,
+    interpolation,
+  }) => {
+    if (!originalImage) return;
+
+    const resized = resizeImageData(
+      originalImage,
+      targetWidth,
+      targetHeight,
+      interpolation
+    );
+
+    setOriginalImage(resized);
+    setInfo((prev) => ({
+      ...prev,
+      width: targetWidth,
+      height: targetHeight,
+    }));
+
+    // Reset levels draft to keep state consistent with new source.
+    setLevels(createDefaultLevels());
+    setLevelsDraft(createDefaultLevels());
+    setLevelsPreviewEnabled(true);
+
+    setLevelsOpen(false);
+    setScaleOpen(false);
+    setPickedPixel(null);
   };
 
   // ================= UPLOAD =================
@@ -107,9 +152,16 @@ export default function App() {
           height: img.height,
           depth: 24,
         });
+
         setLevels(createDefaultLevels());
         setLevelsDraft(createDefaultLevels());
         setLevelsPreviewEnabled(true);
+
+        setPickedPixel(null);
+
+        // Requirement: start at 100% (no fit-to-screen).
+        setViewScalePercent(100);
+        setLevelsOpen(false);
       };
     }
 
@@ -123,9 +175,16 @@ export default function App() {
         height: result.height,
         depth: 7,
       });
+
       setLevels(createDefaultLevels());
       setLevelsDraft(createDefaultLevels());
       setLevelsPreviewEnabled(true);
+
+      setPickedPixel(null);
+
+      // Requirement: start at 100% (no fit-to-screen).
+      setViewScalePercent(100);
+      setLevelsOpen(false);
     }
   };
 
@@ -160,6 +219,7 @@ export default function App() {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
 
+    // Map click inside displayed (scaled) canvas -> canvas pixel coords.
     const x = Math.floor((e.clientX - rect.left) * (canvas.width / rect.width));
     const y = Math.floor((e.clientY - rect.top) * (canvas.height / rect.height));
 
@@ -183,16 +243,15 @@ export default function App() {
         overflow: "hidden",
       }}
     >
-      {/* Top bar keeps file and tool actions reachable at all times. */}
       <TopMenu
         setTool={setTool}
         onOpen={handleUpload}
         onSavePNG={handleDownloadPNG}
         onSaveGB7={handleDownloadGB7}
         onOpenLevels={handleOpenLevels}
+        onOpenScale={handleOpenScale}
       />
 
-      {/* Main workspace: channels on the left, canvas in the center, Levels on the right. */}
       <div
         style={{
           flex: 1,
@@ -204,7 +263,7 @@ export default function App() {
         {hasImage && (
           <div
             style={{
-              width: 180,
+              width: LEFT_PANEL_WIDTH,
               flexShrink: 0,
               overflow: "hidden",
               borderRight: "1px solid #333",
@@ -225,8 +284,8 @@ export default function App() {
             minWidth: 0,
             minHeight: 0,
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            alignItems: "stretch",
+            justifyContent: "flex-start",
             overflow: "hidden",
             background: "#2d2d2d",
           }}
@@ -240,36 +299,68 @@ export default function App() {
           ) : (
             <div style={{ color: "#888" }}>Открой изображение</div>
           )}
-        </div>
 
-        {hasImage && levelsOpen && (
-          <div
-            style={{
-              width: 360,
-              flexShrink: 0,
-              borderLeft: "1px solid #333",
-              background: "#1f1f1f",
-              overflow: "hidden",
-            }}
-          >
-            <LevelsDialog
-              open={levelsOpen}
-              imageData={originalImage}
-              levels={levelsDraft}
-              setLevels={setLevelsDraft}
-              previewEnabled={levelsPreviewEnabled}
-              setPreviewEnabled={setLevelsPreviewEnabled}
-              onCancel={handleCancelLevels}
-              onApply={handleApplyLevels}
-            />
-          </div>
-        )}
+          {hasImage && levelsOpen && (
+            <div
+              style={{
+                width: RIGHT_PANEL_WIDTH,
+                flexShrink: 0,
+                borderLeft: "1px solid #333",
+                background: "#1f1f1f",
+                overflow: "hidden",
+              }}
+            >
+              <LevelsDialog
+                open={levelsOpen}
+                imageData={originalImage}
+                levels={levelsDraft}
+                setLevels={setLevelsDraft}
+                previewEnabled={levelsPreviewEnabled}
+                setPreviewEnabled={setLevelsPreviewEnabled}
+                onCancel={handleCancelLevels}
+                onApply={handleApplyLevels}
+              />
+            </div>
+          )}
+
+          {hasImage && scaleOpen && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0, 0, 0, 0.45)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 10000,
+                padding: 20,
+              }}
+            >
+              <ScaleDialog
+                open={scaleOpen}
+                sourceWidth={info.width}
+                sourceHeight={info.height}
+                initialScalePercent={viewScalePercent}
+                initialUnit="percent"
+                initialInterpolation="bilinear"
+                onCancel={handleCancelScale}
+                onApply={handleApplyScale}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Bottom info bar shows image size and picked pixel data. */}
       {hasImage && (
         <div style={{ flexShrink: 0 }}>
-          <EyedropperInfo pixel={pickedPixel} info={info} />
+          <EyedropperInfo
+            pixel={pickedPixel}
+            info={info}
+            scalePercent={viewScalePercent}
+            onScaleChange={(p) => {
+              setViewScalePercent(p);
+            }}
+          />
         </div>
       )}
     </div>
