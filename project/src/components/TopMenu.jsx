@@ -5,6 +5,7 @@ export default function TopMenu({
   onOpen,
   onSavePNG,
   onSaveGB7,
+  onOpenLevels, //  ДОБАВИЛИ
 }) {
   const [open, setOpen] = useState(null);
 
@@ -12,33 +13,19 @@ export default function TopMenu({
     setOpen(open === name ? null : name);
   };
 
-  // ===== ЗАКРЫТЬ МЕНЮ ПОСЛЕ ДЕЙСТВИЯ =====
   const handleAction = (callback) => {
     callback();
     setOpen(null);
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        background: "#1e1e1e",
-        color: "white",
-        padding: "8px 12px",
-        borderBottom: "1px solid #333",
-        userSelect: "none",
-      }}
-    >
-      {/* ===== FILE ===== */}
+    <div style={styles.bar}>
+      {/* FILE */}
       <div style={{ position: "relative", marginRight: 20 }}>
-        <button onClick={() => toggleMenu("file")}>
-          Файл
-        </button>
+        <button onClick={() => toggleMenu("file")}>Файл</button>
 
         {open === "file" && (
           <div style={menuStyle}>
-            {/* OPEN */}
             <label style={itemStyle}>
               Открыть
               <input
@@ -51,34 +38,20 @@ export default function TopMenu({
               />
             </label>
 
-            {/* SAVE PNG */}
-            <button
-              style={itemStyle}
-              onClick={() =>
-                handleAction(onSavePNG)
-              }
-            >
+            <button style={itemStyle} onClick={() => handleAction(onSavePNG)}>
               Сохранить PNG
             </button>
 
-            {/* SAVE GB7 */}
-            <button
-              style={itemStyle}
-              onClick={() =>
-                handleAction(onSaveGB7)
-              }
-            >
+            <button style={itemStyle} onClick={() => handleAction(onSaveGB7)}>
               Сохранить GB7
             </button>
           </div>
         )}
       </div>
 
-      {/* ===== TOOLS ===== */}
+      {/* TOOLS */}
       <div style={{ position: "relative" }}>
-        <button onClick={() => toggleMenu("tools")}>
-          Инструменты
-        </button>
+        <button onClick={() => toggleMenu("tools")}>Инструменты</button>
 
         {open === "tools" && (
           <div style={menuStyle}>
@@ -101,12 +74,35 @@ export default function TopMenu({
             >
               Пипетка
             </button>
+
+            {/*  FIX */}
+<button
+  style={itemStyle}
+  onClick={() => {
+    onOpenLevels();
+    setOpen(null);
+  }}
+>
+  Levels
+</button>
           </div>
         )}
       </div>
     </div>
   );
 }
+
+const styles = {
+  bar: {
+    display: "flex",
+    alignItems: "center",
+    background: "#1e1e1e",
+    color: "white",
+    padding: "8px 12px",
+    borderBottom: "1px solid #333",
+    userSelect: "none",
+  },
+};
 
 const menuStyle = {
   position: "absolute",
