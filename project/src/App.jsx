@@ -297,7 +297,17 @@ export default function App() {
               onClick={handleCanvasClick}
             />
           ) : (
-            <div style={{ color: "#888" }}>Открой изображение</div>
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#888",
+              }}
+            >
+              Открой изображение
+            </div>
           )}
 
           {hasImage && levelsOpen && (
