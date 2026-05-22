@@ -25,6 +25,9 @@ export default function App() {
 
   const [originalImage, setOriginalImage] = useState(null);
 
+  const [channelsMode, setChannelsMode] = useState("rgba"); // "rgba" | "gb7"
+  const [hasAlpha, setHasAlpha] = useState(false);
+
   const [channels, setChannels] = useState({
     r: true,
     g: true,
@@ -59,12 +62,13 @@ export default function App() {
       levelsOpen && levelsPreviewEnabled ? levelsDraft : levels;
 
     const leveled = applyLevels(originalImage, activeLevels);
-    const colored = applyChannels(leveled, channels);
+    const colored = applyChannels(leveled, channels, channelsMode);
 
     return scaleImageData(colored, viewScalePercent, "bilinear");
   }, [
     originalImage,
     channels,
+    channelsMode,
     levels,
     levelsDraft,
     levelsOpen,
@@ -92,8 +96,6 @@ export default function App() {
   const handleOpenScale = () => setScaleOpen(true);
   const handleCancelScale = () => setScaleOpen(false);
 
-  // Scale tool: actually resizes the source image (originalImage).
-  // After resize we keep current viewScalePercent (no auto-fit).
   const handleApplyScale = ({
     targetWidth,
     targetHeight,
@@ -132,6 +134,10 @@ export default function App() {
     const ext = file.name.split(".").pop().toLowerCase();
 
     if (["png", "jpg", "jpeg"].includes(ext)) {
+      // JPG/JPEG -> no alpha UI, PNG -> alpha UI.
+      const nextChannelsMode = "rgba";
+      const nextHasAlpha = ext === "png";
+
       const img = new Image();
       img.src = URL.createObjectURL(file);
 
@@ -146,11 +152,20 @@ export default function App() {
 
         const data = ctx.getImageData(0, 0, img.width, img.height);
 
+        setChannelsMode(nextChannelsMode);
+        setHasAlpha(nextHasAlpha);
+        setChannels({
+          r: true,
+          g: true,
+          b: true,
+          a: nextHasAlpha,
+        });
+
         setOriginalImage(data);
         setInfo({
           width: img.width,
           height: img.height,
-          depth: 24,
+          depth: ext === "png" ? 32 : 24,
         });
 
         setLevels(createDefaultLevels());
@@ -159,7 +174,6 @@ export default function App() {
 
         setPickedPixel(null);
 
-        // Requirement: start at 100% (no fit-to-screen).
         setViewScalePercent(100);
         setLevelsOpen(false);
       };
@@ -168,6 +182,15 @@ export default function App() {
     if (ext === "gb7") {
       const buffer = await file.arrayBuffer();
       const result = decodeGB7(buffer);
+
+      setChannelsMode("gb7");
+      setHasAlpha(result.hasMask);
+      setChannels({
+        r: true,
+        g: true,
+        b: true,
+        a: result.hasMask,
+      });
 
       setOriginalImage(result.imageData);
       setInfo({
@@ -182,7 +205,6 @@ export default function App() {
 
       setPickedPixel(null);
 
-      // Requirement: start at 100% (no fit-to-screen).
       setViewScalePercent(100);
       setLevelsOpen(false);
     }
@@ -208,6 +230,18 @@ export default function App() {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "image.gb7";
+    a.click();
+  };
+
+  const handleDownloadJPG = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // JPEG doesn't support alpha; browser will flatten against default background.
+    // We keep quality high; if your lab specifies a quality, we can adjust.
+    const a = document.createElement("a");
+    a.download = "image.jpg";
+    a.href = canvas.toDataURL("image/jpeg", 0.95);
     a.click();
   };
 
@@ -248,6 +282,7 @@ export default function App() {
         onOpen={handleUpload}
         onSavePNG={handleDownloadPNG}
         onSaveGB7={handleDownloadGB7}
+        onSaveJPG={handleDownloadJPG}
         onOpenLevels={handleOpenLevels}
         onOpenScale={handleOpenScale}
       />
@@ -274,6 +309,8 @@ export default function App() {
               channels={channels}
               setChannels={setChannels}
               imageData={originalImage}
+              hasAlpha={hasAlpha}
+              channelsMode={channelsMode}
             />
           </div>
         )}

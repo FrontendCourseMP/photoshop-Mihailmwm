@@ -5,6 +5,7 @@ export default function TopMenu({
   onOpen,
   onSavePNG,
   onSaveGB7,
+  onSaveJPG,
   onOpenLevels,
   onOpenScale,
 }) {
@@ -45,6 +46,10 @@ export default function TopMenu({
 
             <button style={itemStyle} onClick={() => handleAction(onSaveGB7)}>
               Сохранить GB7
+            </button>
+
+            <button style={itemStyle} onClick={() => handleAction(onSaveJPG)}>
+              Сохранить JPG
             </button>
           </div>
         )}

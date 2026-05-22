@@ -23,6 +23,11 @@ export default function EyedropperInfo({
   const sizeText =
     info?.width && info?.height ? `${info.width} × ${info.height}` : null;
 
+  const depthText =
+    typeof info?.depth === "number" && info.depth > 0
+      ? `Глубина: ${info.depth} бит`
+      : null;
+
   const controlStyle = {
     display: "flex",
     alignItems: "center",
@@ -36,10 +41,13 @@ export default function EyedropperInfo({
     padding: "4px 6px",
   };
 
+  const depthSpan = depthText ? <span>{depthText}</span> : null;
+
   if (!pixel) {
     return (
       <div style={style}>
         {sizeText && <span>Изображение: {sizeText}</span>}
+        {depthSpan}
 
         {typeof scalePercent === "number" && (
           <label style={controlStyle}>
@@ -68,6 +76,7 @@ export default function EyedropperInfo({
   return (
     <div style={style}>
       {sizeText && <span>Изображение: {sizeText}</span>}
+      {depthSpan}
 
       {typeof scalePercent === "number" && (
         <label style={controlStyle}>
