@@ -23,14 +23,23 @@ function ChannelItem({ label, active, imageData, mask, onToggle, channelsMode })
         <canvas
           ref={(el) => {
             if (!el) return;
+
             const ctx = el.getContext("2d");
             el.width = preview.width;
             el.height = preview.height;
             ctx.putImageData(preview, 0, 0);
-            el.style.width = "60px";
-            el.style.height = "60px";
+
+            // Preserve aspect ratio: fit into 60x60 box (contain), no stretching.
+            const box = 60;
+            const scale = Math.min(box / preview.width, box / preview.height);
+            const dispW = Math.max(1, Math.round(preview.width * scale));
+            const dispH = Math.max(1, Math.round(preview.height * scale));
+
+            el.style.width = `${dispW}px`;
+            el.style.height = `${dispH}px`;
             el.style.imageRendering = "pixelated";
             el.style.border = "1px solid #555";
+            el.style.display = "block";
           }}
         />
       )}
