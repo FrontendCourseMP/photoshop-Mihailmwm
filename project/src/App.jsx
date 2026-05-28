@@ -10,10 +10,19 @@ import ScaleDialog from "./components/ScaleDialog";
 import { decodeGB7, encodeGB7 } from "./utils/gb7";
 import { applyChannels, rgbToLab } from "./utils/color";
 import { applyLevels, createDefaultLevels } from "./utils/levels";
-import { resizeImageData, scaleImageData } from "./utils/scale";
+import {
+  calculateFitScalePercent,
+  resizeImageData,
+  scaleImageData,
+} from "./utils/scale";
 
 const LEFT_PANEL_WIDTH = 180;
 const RIGHT_PANEL_WIDTH = 360;
+const TOP_MENU_HEIGHT = 48;
+const VIEW_MARGIN = 50;
+
+const clampDisplayScalePercent = (p) =>
+  Math.max(12, Math.min(300, Math.round(Number(p) || 100)));
 
 export default function App() {
   const canvasRef = useRef(null);
@@ -48,13 +57,40 @@ export default function App() {
   const [levelsDraft, setLevelsDraft] = useState(() => createDefaultLevels());
   const [levelsPreviewEnabled, setLevelsPreviewEnabled] = useState(true);
 
-  // View zoom (12..300) affects canvas rendering only (scaled-by-view-zoom).
-  // Must start at 100% when image opens and must not auto-fit.
-  const [viewScalePercent, setViewScalePercent] = useState(100);
+  /**
+   * Zoom model:
+   * - actualViewScalePercent is used to resize the canvas content
+   * - displayedScalePercent is what user sees in dropdown/select
+   *
+   * Requirement: on open the image should be fully visible (fit-to-viewport),
+   * but the scale UI should show 100%.
+   */
+  const [fitScalePercent, setFitScalePercent] = useState(100);
+  const [viewScaleFactor, setViewScaleFactor] = useState(1); // 1 => 100%
+
+  const displayedScalePercent = clampDisplayScalePercent(viewScaleFactor * 100);
+  const actualViewScalePercent = Math.max(1, fitScalePercent * viewScaleFactor);
 
   const hasImage = originalImage !== null;
 
-  // Canvas image is: original -> levels -> channels -> scaled-by-view-zoom (with interpolation).
+  const computeFitZoom = (imageWidth, imageHeight) => {
+    if (typeof window === "undefined") return 100;
+
+    return calculateFitScalePercent(
+      imageWidth,
+      imageHeight,
+      window.innerWidth,
+      window.innerHeight,
+      {
+        leftPanelWidth: LEFT_PANEL_WIDTH,
+        rightPanelWidth: 0,
+        topBarHeight: TOP_MENU_HEIGHT,
+        bottomBarHeight: 0,
+        margin: VIEW_MARGIN,
+      }
+    );
+  };
+
   const imageData = useMemo(() => {
     if (!originalImage) return null;
 
@@ -64,7 +100,7 @@ export default function App() {
     const leveled = applyLevels(originalImage, activeLevels);
     const colored = applyChannels(leveled, channels, channelsMode);
 
-    return scaleImageData(colored, viewScalePercent, "bilinear");
+    return scaleImageData(colored, actualViewScalePercent, "bilinear");
   }, [
     originalImage,
     channels,
@@ -73,7 +109,7 @@ export default function App() {
     levelsDraft,
     levelsOpen,
     levelsPreviewEnabled,
-    viewScalePercent,
+    actualViewScalePercent,
   ]);
 
   const handleOpenLevels = () => {
@@ -125,6 +161,10 @@ export default function App() {
     setLevelsOpen(false);
     setScaleOpen(false);
     setPickedPixel(null);
+
+    // Recompute fit zoom, keep current UI zoom factor.
+    const nextFit = computeFitZoom(targetWidth, targetHeight);
+    setFitScalePercent(nextFit);
   };
 
   // ================= UPLOAD =================
@@ -134,7 +174,6 @@ export default function App() {
     const ext = file.name.split(".").pop().toLowerCase();
 
     if (["png", "jpg", "jpeg"].includes(ext)) {
-      // JPG/JPEG -> no alpha UI, PNG -> alpha UI.
       const nextChannelsMode = "rgba";
       const nextHasAlpha = ext === "png";
 
@@ -149,8 +188,9 @@ export default function App() {
         canvas.height = img.height;
 
         ctx.drawImage(img, 0, 0);
-
         const data = ctx.getImageData(0, 0, img.width, img.height);
+
+        const nextFit = computeFitZoom(img.width, img.height);
 
         setChannelsMode(nextChannelsMode);
         setHasAlpha(nextHasAlpha);
@@ -174,14 +214,20 @@ export default function App() {
 
         setPickedPixel(null);
 
-        setViewScalePercent(100);
+        // On open: UI must show 100%, actual content must be fit-to-viewport.
+        setFitScalePercent(nextFit);
+        setViewScaleFactor(1);
+
         setLevelsOpen(false);
+        setScaleOpen(false);
       };
     }
 
     if (ext === "gb7") {
       const buffer = await file.arrayBuffer();
       const result = decodeGB7(buffer);
+
+      const nextFit = computeFitZoom(result.width, result.height);
 
       setChannelsMode("gb7");
       setHasAlpha(result.hasMask);
@@ -205,8 +251,11 @@ export default function App() {
 
       setPickedPixel(null);
 
-      setViewScalePercent(100);
+      setFitScalePercent(nextFit);
+      setViewScaleFactor(1);
+
       setLevelsOpen(false);
+      setScaleOpen(false);
     }
   };
 
@@ -237,8 +286,6 @@ export default function App() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // JPEG doesn't support alpha; browser will flatten against default background.
-    // We keep quality high; if your lab specifies a quality, we can adjust.
     const a = document.createElement("a");
     a.download = "image.jpg";
     a.href = canvas.toDataURL("image/jpeg", 0.95);
@@ -387,7 +434,7 @@ export default function App() {
                 open={scaleOpen}
                 sourceWidth={info.width}
                 sourceHeight={info.height}
-                initialScalePercent={viewScalePercent}
+                initialScalePercent={displayedScalePercent}
                 initialUnit="percent"
                 initialInterpolation="bilinear"
                 onCancel={handleCancelScale}
@@ -403,9 +450,10 @@ export default function App() {
           <EyedropperInfo
             pixel={pickedPixel}
             info={info}
-            scalePercent={viewScalePercent}
+            scalePercent={displayedScalePercent}
             onScaleChange={(p) => {
-              setViewScalePercent(p);
+              const next = clampDisplayScalePercent(p);
+              setViewScaleFactor(next / 100);
             }}
           />
         </div>
