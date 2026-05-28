@@ -28,6 +28,11 @@ export function applyChannels(imageData, channels, channelsMode = "rgba") {
       const grayIntensity =
         showR ? r : showG ? g : showB ? b : 0;
 
+      // 4 cases:
+      // - none: black
+      // - gray only: grayIntensity
+      // - mask only: a0
+      // - gray + mask: grayIntensity but ONLY where mask=1, else black
       if (!grayOn && !showA) {
         out.data[i] = 0;
         out.data[i + 1] = 0;
@@ -53,11 +58,11 @@ export function applyChannels(imageData, channels, channelsMode = "rgba") {
         continue;
       }
 
-      // both gray + mask => overlay both in RGB (opaque)
-      const overlay = Math.round(grayIntensity * 0.5 + a0 * 0.5);
-      out.data[i] = overlay;
-      out.data[i + 1] = overlay;
-      out.data[i + 2] = overlay;
+      // gray + mask: gate gray by mask (a0 expected 0/255)
+      const gated = a0 > 0 ? grayIntensity : 0;
+      out.data[i] = gated;
+      out.data[i + 1] = gated;
+      out.data[i + 2] = gated;
       out.data[i + 3] = 255;
     }
 
