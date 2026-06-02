@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import TopMenu from "./components/TopMenu";
 import CanvasView from "./components/CanvasView";
@@ -6,6 +6,7 @@ import ChannelsPanel from "./components/ChannelsPanel";
 import EyedropperInfo from "./components/EyedropperInfo";
 import LevelsDialog from "./components/LevelsDialog";
 import ScaleDialog from "./components/ScaleDialog";
+import KernelDialog from "./components/KernelDialog";
 
 import { decodeGB7, encodeGB7 } from "./utils/gb7";
 import { applyChannels, rgbToLab } from "./utils/color";
@@ -15,6 +16,11 @@ import {
   resizeImageData,
   scaleImageData,
 } from "./utils/scale";
+import {
+  applyKernelToImageDataAsync,
+  createDefaultKernelSettings,
+  isIdentityKernel,
+} from "./utils/kernels";
 
 const LEFT_PANEL_WIDTH = 180;
 const RIGHT_PANEL_WIDTH = 360;
@@ -31,6 +37,7 @@ export default function App() {
 
   const [levelsOpen, setLevelsOpen] = useState(false);
   const [scaleOpen, setScaleOpen] = useState(false);
+  const [kernelsOpen, setKernelsOpen] = useState(false);
 
   const [originalImage, setOriginalImage] = useState(null);
 
@@ -71,6 +78,16 @@ export default function App() {
   const displayedScalePercent = clampDisplayScalePercent(viewScaleFactor * 100);
   const actualViewScalePercent = Math.max(1, fitScalePercent * viewScaleFactor);
 
+  // Kernels pipeline state (draft/preview + async processing)
+  const [kernelsDraft, setKernelsDraft] = useState(() =>
+    createDefaultKernelSettings()
+  );
+  const [kernelsPreviewEnabled, setKernelsPreviewEnabled] = useState(true);
+  const [kernelsProcessing, setKernelsProcessing] = useState(false);
+  const [kernelsProgress, setKernelsProgress] = useState(0);
+  const [kernelsProcessedImage, setKernelsProcessedImage] = useState(null);
+  const kernelsAbortRef = useRef(null);
+
   const hasImage = originalImage !== null;
 
   const computeFitZoom = (imageWidth, imageHeight) => {
@@ -91,24 +108,102 @@ export default function App() {
     );
   };
 
+  // Apply Levels first (fast enough) and feed into kernels.
+  const activeLevels = levelsOpen && levelsPreviewEnabled ? levelsDraft : levels;
+
+  const leveledImageData = useMemo(() => {
+    if (!originalImage) return null;
+    return applyLevels(originalImage, activeLevels);
+  }, [originalImage, activeLevels]);
+
+  // Run kernels async preview when dialog open + preview enabled.
+  useEffect(() => {
+    if (!hasImage || !kernelsOpen || !kernelsPreviewEnabled) {
+      if (kernelsAbortRef.current) kernelsAbortRef.current.abort();
+      return;
+    }
+
+    if (!leveledImageData) return;
+
+    const kernel9 = kernelsDraft?.kernel9;
+    const edgeMode = kernelsDraft?.edgeMode ?? "copy";
+    const channelsMask = kernelsDraft?.channelsMask ?? { r: true, g: true, b: true, a: false };
+
+    // Cancel previous run.
+    if (kernelsAbortRef.current) kernelsAbortRef.current.abort();
+
+    // Identity kernel: no need to process.
+    if (isIdentityKernel(kernel9)) {
+      // Avoid synchronous setState() inside effect body (eslint/react rule).
+      setTimeout(() => {
+        setKernelsProcessedImage(leveledImageData);
+        setKernelsProcessing(false);
+        setKernelsProgress(1);
+      }, 0);
+      return;
+    }
+
+    const controller = new AbortController();
+    kernelsAbortRef.current = controller;
+
+    // Avoid calling setState() synchronously within an effect body.
+    setTimeout(() => {
+      setKernelsProcessing(true);
+      setKernelsProgress(0);
+    }, 0);
+
+    (async () => {
+      try {
+        const result = await applyKernelToImageDataAsync(leveledImageData, kernel9, channelsMask, edgeMode, {
+          rowChunk: 12,
+          signal: controller.signal,
+          onProgress: (p) => setKernelsProgress(p),
+        });
+
+        if (controller.signal.aborted) return;
+
+        // If canceled returned null, fall back to leveled.
+        setKernelsProcessedImage(result ?? leveledImageData);
+      } finally {
+        if (!controller.signal.aborted) {
+          setKernelsProcessing(false);
+          setKernelsProgress(1);
+        }
+      }
+    })();
+  }, [
+    hasImage,
+    kernelsOpen,
+    kernelsPreviewEnabled,
+    leveledImageData,
+    kernelsDraft?.edgeMode,
+    kernelsDraft?.presetKey,
+    kernelsDraft?.kernel9?.join(","),
+    kernelsDraft?.channelsMask?.r,
+    kernelsDraft?.channelsMask?.g,
+    kernelsDraft?.channelsMask?.b,
+    kernelsDraft?.channelsMask?.a,
+  ]);
+
   const imageData = useMemo(() => {
     if (!originalImage) return null;
 
-    const activeLevels =
-      levelsOpen && levelsPreviewEnabled ? levelsDraft : levels;
+    const base =
+      kernelsOpen && kernelsPreviewEnabled
+        ? kernelsProcessedImage ?? leveledImageData
+        : leveledImageData;
 
-    const leveled = applyLevels(originalImage, activeLevels);
-    const colored = applyChannels(leveled, channels, channelsMode);
+    const colored = applyChannels(base, channels, channelsMode);
 
     return scaleImageData(colored, actualViewScalePercent, "bilinear");
   }, [
     originalImage,
     channels,
     channelsMode,
-    levels,
-    levelsDraft,
-    levelsOpen,
-    levelsPreviewEnabled,
+    leveledImageData,
+    kernelsOpen,
+    kernelsPreviewEnabled,
+    kernelsProcessedImage,
     actualViewScalePercent,
   ]);
 
@@ -153,7 +248,6 @@ export default function App() {
       height: targetHeight,
     }));
 
-    // Reset levels draft to keep state consistent with new source.
     setLevels(createDefaultLevels());
     setLevelsDraft(createDefaultLevels());
     setLevelsPreviewEnabled(true);
@@ -162,9 +256,62 @@ export default function App() {
     setScaleOpen(false);
     setPickedPixel(null);
 
-    // Recompute fit zoom, keep current UI zoom factor.
     const nextFit = computeFitZoom(targetWidth, targetHeight);
     setFitScalePercent(nextFit);
+  };
+
+  const handleOpenKernels = () => {
+    setKernelsDraft(createDefaultKernelSettings());
+    setKernelsPreviewEnabled(true);
+    setKernelsProcessedImage(null);
+    setKernelsProcessing(false);
+    setKernelsProgress(0);
+    setKernelsOpen(true);
+  };
+
+  const handleCancelKernels = () => {
+    if (kernelsAbortRef.current) kernelsAbortRef.current.abort();
+    setKernelsOpen(false);
+    setKernelsProcessedImage(null);
+    setKernelsProcessing(false);
+    setKernelsProgress(0);
+  };
+
+  const handleApplyKernels = async () => {
+    if (!originalImage) return;
+    if (kernelsProcessing) return;
+
+    // If preview didn't run yet, compute synchronously-ish from leveled.
+    const base = leveledImageData;
+    if (!base) return;
+
+    const kernel9 = kernelsDraft?.kernel9;
+    const edgeMode = kernelsDraft?.edgeMode ?? "copy";
+    const channelsMask =
+      kernelsDraft?.channelsMask ?? { r: true, g: true, b: true, a: false };
+
+    const next =
+      kernelsProcessedImage ??
+      (isIdentityKernel(kernel9) ? base : await applyKernelToImageDataAsync(base, kernel9, channelsMask, edgeMode));
+
+    if (!next) return;
+
+    setOriginalImage(next);
+    setInfo((prev) => ({
+      ...prev,
+      width: next.width,
+      height: next.height,
+    }));
+
+    // Reset Levels state so lab workflow stays consistent.
+    setLevels(createDefaultLevels());
+    setLevelsDraft(createDefaultLevels());
+    setLevelsPreviewEnabled(true);
+
+    setLevelsOpen(false);
+    setKernelsOpen(false);
+    setScaleOpen(false);
+    setPickedPixel(null);
   };
 
   // ================= UPLOAD =================
@@ -214,12 +361,12 @@ export default function App() {
 
         setPickedPixel(null);
 
-        // On open: UI must show 100%, actual content must be fit-to-viewport.
         setFitScalePercent(nextFit);
         setViewScaleFactor(1);
 
         setLevelsOpen(false);
         setScaleOpen(false);
+        setKernelsOpen(false);
       };
     }
 
@@ -256,6 +403,7 @@ export default function App() {
 
       setLevelsOpen(false);
       setScaleOpen(false);
+      setKernelsOpen(false);
     }
   };
 
@@ -300,7 +448,6 @@ export default function App() {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
 
-    // Map click inside displayed (scaled) canvas -> canvas pixel coords.
     const x = Math.floor((e.clientX - rect.left) * (canvas.width / rect.width));
     const y = Math.floor((e.clientY - rect.top) * (canvas.height / rect.height));
 
@@ -332,6 +479,7 @@ export default function App() {
         onSaveJPG={handleDownloadJPG}
         onOpenLevels={handleOpenLevels}
         onOpenScale={handleOpenScale}
+        onOpenKernels={handleOpenKernels}
       />
 
       <div
@@ -416,32 +564,6 @@ export default function App() {
               />
             </div>
           )}
-
-          {hasImage && scaleOpen && (
-            <div
-              style={{
-                position: "fixed",
-                inset: 0,
-                background: "rgba(0, 0, 0, 0.45)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                zIndex: 10000,
-                padding: 20,
-              }}
-            >
-              <ScaleDialog
-                open={scaleOpen}
-                sourceWidth={info.width}
-                sourceHeight={info.height}
-                initialScalePercent={displayedScalePercent}
-                initialUnit="percent"
-                initialInterpolation="bilinear"
-                onCancel={handleCancelScale}
-                onApply={handleApplyScale}
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -456,6 +578,72 @@ export default function App() {
               setViewScaleFactor(next / 100);
             }}
           />
+        </div>
+      )}
+
+      {hasImage && scaleOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000,
+            padding: 20,
+          }}
+        >
+          <ScaleDialog
+            open={scaleOpen}
+            sourceWidth={info.width}
+            sourceHeight={info.height}
+            initialScalePercent={displayedScalePercent}
+            initialUnit="percent"
+            initialInterpolation="bilinear"
+            onCancel={handleCancelScale}
+            onApply={handleApplyScale}
+          />
+        </div>
+      )}
+
+      {hasImage && kernelsOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "transparent",
+            display: "flex",
+            alignItems: "stretch",
+            justifyContent: "flex-end",
+            zIndex: 10000,
+            padding: 0,
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              width: RIGHT_PANEL_WIDTH,
+              flexShrink: 0,
+              background: "#1f1f1f",
+              borderLeft: "1px solid #333",
+              overflow: "hidden",
+              pointerEvents: "auto",
+            }}
+          >
+            <KernelDialog
+              open={kernelsOpen}
+              onCancel={handleCancelKernels}
+              onReset={() => setKernelsDraft(createDefaultKernelSettings())}
+              onApply={handleApplyKernels}
+              kernelDraft={kernelsDraft}
+              setKernelDraft={setKernelsDraft}
+              previewEnabled={kernelsPreviewEnabled}
+              setPreviewEnabled={setKernelsPreviewEnabled}
+              isProcessing={kernelsProcessing}
+              progress={kernelsProgress}
+            />
+          </div>
         </div>
       )}
     </div>

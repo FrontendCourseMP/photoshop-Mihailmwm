@@ -8,6 +8,7 @@ export default function TopMenu({
   onSaveJPG,
   onOpenLevels,
   onOpenScale,
+  onOpenKernels,
 }) {
   const [open, setOpen] = useState(null);
 
@@ -99,6 +100,16 @@ export default function TopMenu({
               }}
             >
               Масштаб
+            </button>
+
+            <button
+              style={itemStyle}
+              onClick={() => {
+                onOpenKernels?.();
+                setOpen(null);
+              }}
+            >
+              Фильтры
             </button>
           </div>
         )}
