@@ -17,7 +17,7 @@ export function decodeGB7(buffer) {
   const height = view.getUint16(8);
   // Проверяем наличие маски прозрачности
   // Первый бит байта флагов
-  const hasMask = view.getUint8(5) & 1;
+  const hasMask = (view.getUint8(5) & 1) !== 0;
   // Создаем объект ImageData для результата
   const imageData = new ImageData(width, height);
   // Начало пиксельных данных после заголовка

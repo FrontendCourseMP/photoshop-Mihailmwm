@@ -108,6 +108,68 @@ export default function App() {
     );
   };
 
+  // DEBUG: auto-load test GB7 from public/test-images without file picker
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const test = params.get("test");
+
+    if (!test) return;
+
+    const fileName =
+      test === "nomask"
+        ? "kapibara-nomask.gb7"
+        : test === "mask"
+          ? "kapibara-mask.gb7"
+          : null;
+
+    if (!fileName) return;
+
+    const run = async () => {
+      const res = await fetch(`/test-images/${fileName}`);
+      const buffer = await res.arrayBuffer();
+      const result = decodeGB7(buffer);
+
+      const nextFit = computeFitZoom(result.width, result.height);
+
+      setChannelsMode("gb7");
+      setHasAlpha(result.hasMask);
+      setChannels({
+        r: true,
+        g: true,
+        b: true,
+        a: result.hasMask,
+      });
+
+      setOriginalImage(result.imageData);
+      setInfo({
+        width: result.width,
+        height: result.height,
+        depth: 7,
+      });
+
+      setLevels(createDefaultLevels());
+      setLevelsDraft(createDefaultLevels());
+      setLevelsPreviewEnabled(true);
+
+      setPickedPixel(null);
+
+      setFitScalePercent(nextFit);
+      setViewScaleFactor(1);
+
+      setLevelsOpen(false);
+      setScaleOpen(false);
+      setKernelsOpen(false);
+    };
+
+    run().catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error("Failed to load test gb7:", e);
+    });
+    // Intentionally run once per mount; computeFitZoom is stable in this app.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Apply Levels first (fast enough) and feed into kernels.
   const activeLevels = levelsOpen && levelsPreviewEnabled ? levelsDraft : levels;
 
@@ -561,6 +623,8 @@ export default function App() {
                 setPreviewEnabled={setLevelsPreviewEnabled}
                 onCancel={handleCancelLevels}
                 onApply={handleApplyLevels}
+                hasAlpha={hasAlpha}
+                channelsMode={channelsMode}
               />
             </div>
           )}
@@ -642,6 +706,7 @@ export default function App() {
               setPreviewEnabled={setKernelsPreviewEnabled}
               isProcessing={kernelsProcessing}
               progress={kernelsProgress}
+              hasAlpha={hasAlpha}
             />
           </div>
         </div>

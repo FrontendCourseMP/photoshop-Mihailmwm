@@ -18,6 +18,7 @@ export default function KernelDialog({
   setKernelDraft,
   previewEnabled,
   setPreviewEnabled,
+  hasAlpha = false,
   isProcessing = false,
   progress = 0,
 }) {
@@ -27,6 +28,15 @@ export default function KernelDialog({
   const edgeMode = kernelDraft?.edgeMode ?? "copy";
   const channelsMask =
     kernelDraft?.channelsMask ?? { r: true, g: true, b: true, a: false };
+
+  const allowAlpha = !!hasAlpha;
+
+  // If the format doesn't contain a real alpha/mask channel,
+  // force A off so we never apply kernels to a constant/all-255 channel
+  // that could create visible 0/black edges depending on edgeMode.
+  const effectiveChannelsMask = allowAlpha
+    ? channelsMask
+    : { ...channelsMask, a: false };
 
   const handlePresetChange = (presetKey) => {
     const preset = kernelPresets[presetKey];
@@ -49,6 +59,8 @@ export default function KernelDialog({
   };
 
   const toggleChannel = (ch) => {
+    if (ch === "a" && !allowAlpha) return;
+
     setKernelDraft((prev) => ({
       ...prev,
       channelsMask: {
@@ -58,9 +70,18 @@ export default function KernelDialog({
     }));
   };
 
-  const allSelected = !!(
-    channelsMask.r && channelsMask.g && channelsMask.b && channelsMask.a
-  );
+  const allSelected = allowAlpha
+    ? !!(
+        effectiveChannelsMask.r &&
+        effectiveChannelsMask.g &&
+        effectiveChannelsMask.b &&
+        effectiveChannelsMask.a
+      )
+    : !!(
+        effectiveChannelsMask.r &&
+        effectiveChannelsMask.g &&
+        effectiveChannelsMask.b
+      );
 
   const toggleAllChannels = () => {
     setKernelDraft((prev) => ({
@@ -69,7 +90,7 @@ export default function KernelDialog({
         r: !allSelected,
         g: !allSelected,
         b: !allSelected,
-        a: !allSelected,
+        a: allowAlpha ? !allSelected : false,
       },
     }));
   };
@@ -211,7 +232,7 @@ export default function KernelDialog({
                 { key: "r", label: "R (красный)" },
                 { key: "g", label: "G (зелёный)" },
                 { key: "b", label: "B (синий)" },
-                { key: "a", label: "A (альфа)" },
+                ...(allowAlpha ? [{ key: "a", label: "A (альфа)" }] : []),
               ].map(({ key, label }) => (
                 <label
                   key={key}
@@ -219,7 +240,7 @@ export default function KernelDialog({
                 >
                   <input
                     type="checkbox"
-                    checked={!!channelsMask[key]}
+                    checked={!!effectiveChannelsMask[key]}
                     disabled={isProcessing}
                     onChange={() => toggleChannel(key)}
                   />

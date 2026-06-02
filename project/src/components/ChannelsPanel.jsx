@@ -57,6 +57,10 @@ export default function ChannelsPanel({
   channelsMode = "rgba", // "rgba" | "gb7"
 }) {
   const toggleGray = () => {
+    // GB7: если в формате нет маски (hasAlpha=false), то "выключение" gray оставит все каналы off,
+    // и applyChannels вернёт черный (0). Пользователю в таком случае нельзя показывать "0 вместо слоя".
+    if (channelsMode === "gb7" && !hasAlpha) return;
+
     setChannels((prev) => {
       const next = !(prev.r || prev.g || prev.b);
       return { ...prev, r: next, g: next, b: next };
@@ -71,7 +75,7 @@ export default function ChannelsPanel({
     setChannels((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // GB7: show 2 layers only (Gray + Mask)
+// GB7: show 2 layers only (Gray + Mask) — but hide mask layer if format says it doesn't exist
   if (channelsMode === "gb7") {
     return (
       <div style={{ padding: 10 }}>
@@ -86,14 +90,16 @@ export default function ChannelsPanel({
           onToggle={toggleGray}
         />
 
-        <ChannelItem
-          label="mask"
-          active={channels.a}
-          imageData={imageData}
-          channelsMode={channelsMode}
-          mask={{ r: false, g: false, b: false, a: true }}
-          onToggle={toggleMask}
-        />
+        {hasAlpha && (
+          <ChannelItem
+            label="mask"
+            active={channels.a}
+            imageData={imageData}
+            channelsMode={channelsMode}
+            mask={{ r: false, g: false, b: false, a: true }}
+            onToggle={toggleMask}
+          />
+        )}
       </div>
     );
   }

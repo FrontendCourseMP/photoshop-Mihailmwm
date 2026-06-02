@@ -34,18 +34,27 @@ export default function LevelsDialog({
   setLevels,
   previewEnabled,
   setPreviewEnabled,
+  hasAlpha = false,
 }) {
   const [channel, setChannel] = useState("master");
   const [logarithmic, setLogarithmic] = useState(false);
+  const allowAlpha = !!hasAlpha;
+
+  const effectiveChannel = allowAlpha
+    ? channel
+    : channel === "a"
+      ? "master"
+      : channel;
 
   const histogram = useMemo(() => {
     if (!imageData) return [];
-    return buildHistogram(imageData, channel, logarithmic);
-  }, [imageData, channel, logarithmic]);
+    return buildHistogram(imageData, effectiveChannel, logarithmic);
+  }, [imageData, effectiveChannel, logarithmic]);
 
   if (!open || !imageData) return null;
 
-  const current = channel === "master" ? levels.master : levels[channel];
+  const current =
+    effectiveChannel === "master" ? levels.master : levels[effectiveChannel];
 
   const black = current.black;
   const white = current.white;
@@ -64,7 +73,7 @@ export default function LevelsDialog({
   const effectiveGamma = gammaFromMid(safeBlack, safeWhite, midValue);
 
   const setDraftForChannel = (patch) => {
-    if (channel === "master") {
+    if (effectiveChannel === "master") {
       setLevels((prev) => ({
         ...prev,
         master: {
@@ -77,8 +86,8 @@ export default function LevelsDialog({
 
     setLevels((prev) => ({
       ...prev,
-      [channel]: {
-        ...prev[channel],
+      [effectiveChannel]: {
+        ...prev[effectiveChannel],
         ...patch,
       },
     }));
@@ -209,7 +218,7 @@ export default function LevelsDialog({
               <div style={{ marginBottom: 5 }}>Канал</div>
 
               <select
-                value={channel}
+                value={effectiveChannel}
                 onChange={(e) => setChannel(e.target.value)}
                 style={selectStyle}
               >
@@ -217,7 +226,7 @@ export default function LevelsDialog({
                 <option value="r">Красный</option>
                 <option value="g">Зелёный</option>
                 <option value="b">Синий</option>
-                <option value="a">Альфа</option>
+                {allowAlpha && <option value="a">Альфа</option>}
               </select>
             </div>
 
@@ -259,13 +268,13 @@ export default function LevelsDialog({
                   width: 2,
                   height: `${(v / max) * 100}%`,
                   background:
-                    channel === "r"
+                    effectiveChannel === "r"
                       ? "#ff5555"
-                      : channel === "g"
+                      : effectiveChannel === "g"
                         ? "#55ff55"
-                        : channel === "b"
+                        : effectiveChannel === "b"
                           ? "#5599ff"
-                          : channel === "a"
+                          : effectiveChannel === "a"
                             ? "#cccccc"
                             : "#ffffff",
                 }}
